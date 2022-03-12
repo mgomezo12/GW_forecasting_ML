@@ -47,7 +47,8 @@ NSmap= NS.boundary.plot( figsize=(10, 10), alpha=0.5, edgecolor='k', linewidth=1
 clst.plot(ax=NSmap,marker='v', color='darkred', markersize=5)
 rrst.plot(ax=NSmap,marker='.', color='c', markersize=5)
 GWstc.plot(ax=NSmap,marker='*', color='darkblue', markersize=5)
-#cx.add_basemap(NSmap)
+cx.add_basemap(NSmap, crs=NSmap.crs.to_string(),
+               source=cx.providers.CartoDB.Voyager)
 
 
 
