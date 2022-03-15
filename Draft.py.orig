@@ -49,6 +49,7 @@ GW_CD_ID1=GW_CD_ID1.to_crs(epsg=4326)
 #%%
 #ax =germany_states.boundary.plot(figsize=(10, 10),alpha=0.5, edgecolor='k', linewidth=1)
 NSmap= NS.boundary.plot( figsize=(10, 10), alpha=0.5, edgecolor='k', linewidth=1)
+<<<<<<< HEAD
 clst.plot(ax=NSmap,marker='v', color='darkred', markersize=5, label="CD")
 rrst.plot(ax=NSmap,marker='.', color='c', markersize=5, label="RR")
 #GWstc.plot(ax=NSmap,marker='o', color='chocolate', markersize=8, label="GWCD")
@@ -56,11 +57,13 @@ GW_CD_ID1.plot(ax=NSmap,marker='*', color='darkblue', markersize=2, label="GW")
 
 plt.legend()
 #cx.add_basemap(NSmap)
+=======
 clst.plot(ax=NSmap,marker='v', color='darkred', markersize=5)
 rrst.plot(ax=NSmap,marker='.', color='c', markersize=5)
 GWstc.plot(ax=NSmap,marker='*', color='darkblue', markersize=5)
-#cx.add_basemap(NSmap, crs=NSmap.crs.to_string(),
-#               source=cx.providers.CartoDB.Voyager)
+cx.add_basemap(NSmap, crs=NSmap.crs.to_string(),
+               source=cx.providers.CartoDB.Voyager)
+>>>>>>> 737938f2bfbdbfc32f8f765565f0abeae30c6f41
 
 
 
