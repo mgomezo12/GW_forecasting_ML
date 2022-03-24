@@ -13,6 +13,7 @@ from pyproj import Transformer
 import netCDF4 as nc
 from datetime import datetime, timedelta
 import glob
+import datetime as dt
 
 #Read groundwater time series (txt)
 def readGWdata(mestid, path):
@@ -32,26 +33,34 @@ class netcdfdata:
     ________________________________________________
     Parameters: 
         file: netCDF file 
+        shp: shapefile points to extract the climate information
+        variable: the variable name according to the dataset
+        
         lat, lon : standard latitude and longitude 
                     (if the netCDF only has rotated polar coordinates since 
                      the transformation is not completely matching)
         
+        
    """
    
-    def __init__(self, file, shp, lat=None ,lon=None):
+    def __init__(self, file, shp, variable="pr", lat=None ,lon=None):
         self.olon= file.variables["rotated_pole"].grid_north_pole_longitude
         self.olat= file.variables["rotated_pole"].grid_north_pole_latitude
         self.data= file
+        self.time=file.variables['time']
         self.ltime=len(file.variables["time"][:])
         self.tlon= shp.geometry.x
         self.tlat= shp.geometry.y
+        self.GWID= shp.MEST_ID
+        self.variable=variable
+
         
-        if lat or lon is None:
+        if isinstance(lat,np.ma.core.MaskedArray):
+            self.lon=lon
+            self.lat=lat            
+        else:
             self.lon= self.data.variables['lon'][:]
             self.lat= self.data.variables['lat'][:]
-        else:
-            self.lon=lon
-            self.lat=lat
         
 
     def transform_rot_coord(self):
@@ -78,7 +87,7 @@ class netcdfdata:
         
         vtlon=[]
         vtlat=[]
-        for lonval,latval in zip(self.tlon,self.tlan): 
+        for lonval,latval in zip(self.tlon,self.tlat): 
             ji = np.sqrt( (self.lon-lonval)**2 + (self.lat-latval)**2 ).argmin()
             tarlon,tarlat = np.unravel_index(ji, self.lon.shape)
             vtlon.append(tarlon)
@@ -87,26 +96,38 @@ class netcdfdata:
         return vtlon, vtlat
     
     def extractTS(self):
-        """Extract the climate data in a domain of 3x3 pixels 
+        """Extract the climate data in a domain of 3x3 pixels (mean value)
         as recommended by DWD
         """ 
         
-        llon=self.tlonlat(self.tlon,self.tlat)[0]
-        llat=self.tlonlat(self.tlon,self.tlat)[1]
+        llon=self.tlonlat()[0]
+        llat=self.tlonlat()[1]
         
-        cdts=[]
+        
         cdts_list=[]
         for j, i in zip(llon,llat):
+            cdts=[]
             for n in range(self.ltime):
-                cdts.append(self.data['hurs'][n,j-1:j+2,i-1:i+2].mean())
+                cdts.append(self.data.variables[self.variable][n,j-1:j+2,i-1:i+2].mean())
+            print(j,i)
+            #print(cdts)
             cdts_list.append(cdts)
-        cd_dic={"lon":llon, "lat": llat, "cdata":cdts_list}
+        
+        #Datetime dataset
+        units=self.time.units
+        calendar=self.time.calendar
+        timearray=np.arange(self.ltime)
+        dtime=nc.num2date(timearray, units, calendar)
+        d1=dtime[:].astype(str)
+        dates_list = [dt.datetime.strptime(date, '%Y-%m-%d %H:%M:%S').date() for date in d1]
+        
+        cd_dic={"ID":self.GWID,"lon":llon, "lat": llat, "time":[dates_list]*len(llon), "cdata":cdts_list}
         cd_data=pd.DataFrame(cd_dic)
         
         return cd_data
+
         
 
-GWF = gpd.read_file("C:/Users/GomezOspina.M/MGO/data/GIS/SHP/GWF.shp")
 
     
     
