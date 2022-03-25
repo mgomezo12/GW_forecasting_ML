@@ -127,7 +127,113 @@ class netcdfdata:
         return cd_data
 
         
-
-
+class fillGWgaps:
+    """ This class aim to fill the missing values in the groundwater level
+    time series considering the neighbouring wells until a threshold distance. 
+    A multiple linear regression is performed for a target well
+    Wells with a defined percentage of no nan values are considered. 
+    The no nan values in the non-target well are filled with the mean value of the corresponding series.
+    ____________________________________
+       
+    Inputs:
+        gwdata: dataframe with the wellids ("wellid"), data and "max_gap" (maximum monthly gap) column
+        gws: shapefile of points with the well coordinates
+        
+    Outputs: 
+        
+    
+    """
+    def __init__(self, gwdata, gws):
+        self.gwdata=gwdata
+        self.gws= gws
+        
+    def distmat(self):
+        "Generate distance matrix based on the well coordinates"
+        gdfs = gpd.GeoDataFrame(geometry=self.gws.geometry).to_crs("EPSG:4647")
+        dmtca=gdfs.geometry.apply(lambda g: gdfs.distance(g))
+        dmtca.columns=self.gws["MEST_ID"].apply(str)
+        dmtca.index=self.gws["MEST_ID"]
+        
+        return dmtca
+    
+    def nearwells(self, maxd=2*10e3):
+        """Generates a dataframe with the nearest wells to each well up 
+        to a maximum fixed distance (maxd in meters)"""
+        idv=[]
+        dmtca=self.distmat()
+        ids=dmtca.columns[:]
+        val=[]
+        for i in ids:
+            sort_dm=dmtca[i].sort_values()
+            dmtca_bol=sort_dm < maxd
+            idlist=dmtca_bol==True
+            values=sort_dm.loc[dmtca_bol == True].values/1000 #km
+            idv.append(idlist.loc[dmtca_bol == True].index)
+            val.append(values)
+        dic_id={"wellid": ids, "nearwell":idv, "Distance":val}
+        idnear=pd.DataFrame(dic_id)
+        
+        return idnear
+    
+    def tw_data(self, twell):
+        """
+        Parameters
+        ----------
+        twell : target well
+        
+        Returns
+        -------
+        dfwell : Dataframe  with the data of the target well
+        """
+        iwell=self.gwdata.data[self.gwdata["wellid"]==twell].index[0]
+        data_twell=self.gwdata.data[self.gwdata["wellid"]==twell]
+        dfwell=data_twell[iwell] 
+        
+        #List of wells near the target well
+        # Exclude the first well since it's the same target well
+        lwells=self.nearwells().nearwell[self.nearwells()["wellid"]==str(twell)].values[0][1:]
+        
+        return dfwell, lwells
+    
+    def builttwdf(self,twell):
+        """
+        Generates a Dataframe based on the dates of the target well and 
+        merge the information with the nearest wells 
+    
+        """       
+        dfwell=self.tw_data(twell)[0]
+        lwells=self.tw_data(twell)[1]
+        
+        #Begining and end of the time series
+        #Where no sequential NaN values are present
+        fnonan=dfwell.GW_NN.first_valid_index()
+        lastnonan=dfwell.GW_NN.last_valid_index()
+        
+        filldf=pd.DataFrame({"DATUM":dfwell.DATUM.loc[fnonan:lastnonan]})
+        for w in lwells:
+            series=self.gwdata.data[self.gwdata["wellid"]==w] 
+            if not series.empty: # Remove wells with no information
+                #ask for data at the wellid
+                wellind=self.gwdata.data[self.gwdata["wellid"]==w].index[0]
+                welldata=self.gwdata.data[self.gwdata["wellid"]==w][wellind]
+                
+                #join data into the filldf dataframe
+                mergedf=pd.merge(welldata[["DATUM","GW_NN"]],filldf, on=["DATUM"])
+                mergedf.rename(columns={"GW_NN":"GW_NN_"+str(w)}, inplace= True)
+                
+                filldf=mergedf
+        
+            else:
+                print("empty")
+        
+        return filldf
+    
+            
+    
+    
+        
+        
+        
+        
     
     
