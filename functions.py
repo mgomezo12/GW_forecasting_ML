@@ -14,6 +14,9 @@ import netCDF4 as nc
 from datetime import datetime, timedelta
 import glob
 import datetime as dt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+
 
 #Read groundwater time series (txt)
 def readGWdata(mestid, path):
@@ -139,13 +142,22 @@ class fillGWgaps:
         gwdata: dataframe with the wellids ("wellid"), data and "max_gap" (maximum monthly gap) column
         gws: shapefile of points with the well coordinates
         
+        maxd: maximum fixed distance in meters to look for closest wells (int)
+        th: % threshold of nan values, meaning that the column should 
+                contain at least th% no NaN values to be consider            
+        maxn: maximum number of wells near the twell to consider 
+                for the MLR. Type:int
+        
     Outputs: 
         
     
     """
-    def __init__(self, gwdata, gws):
+    def __init__(self, gwdata, gws,maxd=2*10e3,th=98, maxn=8):
         self.gwdata=gwdata
         self.gws= gws
+        self.maxd=maxd
+        self.th=th
+        self.maxn=maxn
         
     def distmat(self):
         "Generate distance matrix based on the well coordinates"
@@ -156,7 +168,7 @@ class fillGWgaps:
         
         return dmtca
     
-    def nearwells(self, maxd=2*10e3):
+    def nearwells(self):
         """Generates a dataframe with the nearest wells to each well up 
         to a maximum fixed distance (maxd in meters)"""
         idv=[]
@@ -165,7 +177,7 @@ class fillGWgaps:
         val=[]
         for i in ids:
             sort_dm=dmtca[i].sort_values()
-            dmtca_bol=sort_dm < maxd
+            dmtca_bol=sort_dm < self.maxd
             idlist=dmtca_bol==True
             values=sort_dm.loc[dmtca_bol == True].values/1000 #km
             idv.append(idlist.loc[dmtca_bol == True].index)
@@ -199,6 +211,10 @@ class fillGWgaps:
         """
         Generates a Dataframe based on the dates of the target well and 
         merge the information with the nearest wells 
+        -------
+        input: twell --> code of the target well (the one to be gap-filled)
+                type: int
+
     
         """       
         dfwell=self.tw_data(twell)[0]
@@ -226,8 +242,58 @@ class fillGWgaps:
             else:
                 print("empty")
         
-        return filldf
+        if not filldf.empty:
+            filldf["twell_"+str(twell)]=dfwell.GW_NN.loc[fnonan:lastnonan].values
+            
+            
+            #Training dataset
+            thresh=int(len(filldf)*self.th/100) 
+            nonanmerge=filldf.dropna(axis=1, thresh=thresh)
+            
+            nonanmerge2=nonanmerge.copy()
+            col=nonanmerge2.columns
+            #fill NaN in the nearby wells with the mean value of the time series of the well
+            fillednan=nonanmerge2[col].fillna(nonanmerge2[col].mean()) 
+            fillednan[mergedf.columns[-1]]=mergedf[mergedf.columns[-1]]
+            dftest=fillednan.dropna()
+        
+        return dftest, fillednan
     
+    def MLRmodel(self, twell):
+        """ Multiple linear regression
+        twell --> code of the target well (the one to be gap-filled)
+                type: int
+                
+        maxn:  maximum number of wells near the twell to consider 
+        for the MLR. Type:int
+        """
+        
+        dftest=self.builttwdf(twell)[0]
+        fillednan=self.builttwdf(twell)[1]
+        
+        #Define dataset
+        auxdf=dftest[dftest.columns[:-1]] #Exclude twell column
+        X = auxdf[auxdf.columns[1:self.maxn+1]]
+        y = dftest[dftest.columns[-1]]
+        
+        #TEST and TRAIN
+        if not X.empty:
+            X_train, X_test, y_train, y_test = train_test_split(X, y,\
+                                                        test_size = 0.20,\
+                                                        random_state = 5)
+            model1 = LinearRegression().fit(X_train, y_train)
+            score=model1.score(X_test, y_test)
+            
+            predictdf=fillednan[fillednan["twell_"+str(twell)].isna()]
+            auxdf2=predictdf[predictdf.columns[:-1]] #Exclude twell column
+            X_predct=auxdf2[auxdf2.columns[1:self.maxn+1]]
+            predictions = model1.predict(X_predct)
+            predictdf["twell_"+str(twell)]=predictions
+            dftest2=dftest.combine_first(predictdf[["DATUM", "twell_"+str(twell)]])
+            
+            return dftest2 , score 
+        else:
+            print("No wells avaialble for model prediction")
             
     
     
