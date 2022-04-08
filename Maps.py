@@ -22,7 +22,7 @@ import contextily as ctx
 
 from shapely.geometry.point import Point
 
-rpath="D:/Erasmus/Thesis/SomeData" #Root path
+rpath="D:/Data/students/mariana/data/" #Root path
 
 
 #Import Groundwatwer stations

@@ -16,6 +16,9 @@ import glob
 import datetime as dt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
+import os
+from statsmodels.tsa.seasonal import seasonal_decompose
+from scipy.stats import linregress
 
 
 #Read groundwater time series (txt)
@@ -112,10 +115,10 @@ class netcdfdata:
             cdts=[]
             for n in range(self.ltime):
                 cdts.append(self.data.variables[self.variable][n,j-1:j+2,i-1:i+2].mean())
-            print(j,i)
+            #print(j,i)
             #print(cdts)
             cdts_list.append(cdts)
-        
+        print(len(cdts_list))
         #Datetime dataset
         units=self.time.units
         calendar=self.time.calendar
@@ -128,6 +131,95 @@ class netcdfdata:
         cd_data=pd.DataFrame(cd_dic)
         
         return cd_data
+
+
+
+class loadccvar:
+    """This class is to help in the reading process of the climate model data
+    given by the DWD Germnay (dataset downscaled and bias corrected)
+    
+    -------
+    Inputs: 
+        modelname (str): name of the climate model according to the files
+        var (str): acronym for the climate variable
+        varcodfile (str): short code of the climate variable associated with the file 
+        cod (str): code associated with the each time series file
+        vcod (pandas series or list): ID of points to retrieve the time series information
+        scenario (str): the climate RCP projection to use 
+        
+        path containing the folders with the climate models
+        
+    """
+    def __init__(self, modelname, var, varcodfile, cod, vcod, idcods, path, scenario="RCP85"):
+        self.modelname=modelname
+        self.var= var
+        self.varcodfile=varcodfile
+        self.cod=cod
+        self.vcod=vcod
+        self.idcods=idcods
+        self.scenario=scenario
+        self.rpath=path
+        
+    
+    def readtimeseries(self):
+        path=self.rpath+   \
+            self.modelname+"_"+self.scenario.upper()+      \
+            "/"+self.modelname+"_"+self.var+"_bk_"+       \
+            self.scenario.lower()+"/" 
+            
+        if not os.path.exists(path):
+            path=self.rpath+  \
+            self.modelname+"_"+self.scenario.upper()+ \
+            "/"+self.modelname+"_"+self.var+"_"+  \
+            self.scenario.lower()+"/" 
+        
+        vtm, vidcods, vslope, vintercept =[] , [] , [], []
+        c=0
+        for mid in self.vcod: 
+            tmc=pd.read_csv(path+ \
+                            self.varcodfile+str(int(mid)).zfill(4)+"."\
+                            +self.cod, \
+                            decimal=".",header=0 )
+            
+        
+            datasplit=tmc[tmc.columns[0]].str.split("    ", expand=True)
+            splitdates=datasplit[0].str.split(expand=True)
+            dates=pd.to_datetime(splitdates[0].astype(str)+' '+splitdates[1].astype(str)+' '+splitdates[2].astype(str))
+            data=datasplit[1].copy()
+            
+
+    
+            dfdata=pd.DataFrame({"dates":dates, "data":data.astype(float)})
+            
+            dfdatacopy=dfdata.set_index("dates").copy()
+            #Monthly resample
+            if self.var== "pr":
+                datamonth=dfdatacopy.resample("M").sum()
+            else:
+                datamonth=dfdatacopy.resample("M").mean()
+            
+            decomp=seasonal_decompose(datamonth, model="additive", period=120)
+            dtrend=decomp.trend
+            dtrendc=dtrend.copy().dropna()
+            dtrendc.index= np.arange(len(dtrendc))
+            x =np.arange(len(dtrendc)-1, dtype=np.float64)
+            y = dtrendc.values[:-1].astype('float32')
+            slope, intercept, r_value, p_value, std_err = linregress(x, y)
+            
+            
+            
+            vtm.append(dfdata)
+            vidcods.append(self.idcods[c])
+            vslope.append(slope)
+            vintercept.append(intercept)
+            c+=1
+        
+        return vtm , vidcods, vslope, vintercept
+            
+           
+
+
+
 
         
 class fillGWgaps:
