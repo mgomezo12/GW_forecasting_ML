@@ -19,6 +19,7 @@ from sklearn.linear_model import LinearRegression
 import os
 from statsmodels.tsa.seasonal import seasonal_decompose
 from scipy.stats import linregress
+import pymannkendall as mk
 
 
 #Read groundwater time series (txt)
@@ -134,6 +135,9 @@ class netcdfdata:
 
 
 
+
+
+
 class loadccvar:
     """This class is to help in the reading process of the climate model data
     given by the DWD Germnay (dataset downscaled and bias corrected)
@@ -149,6 +153,8 @@ class loadccvar:
         
         path containing the folders with the climate models
         
+        output: dataframe containing the time series per well id, the trend slope and intercept
+        
     """
     def __init__(self, modelname, var, varcodfile, cod, vcod, idcods, path, scenario="RCP85"):
         self.modelname=modelname
@@ -160,6 +166,43 @@ class loadccvar:
         self.scenario=scenario
         self.rpath=path
         
+    
+    def mktrend(self,series, period=12, alpha=0.05, met="MK"):
+        """"
+        
+        method (met): Mann Kendall method 
+        Period:12 months, if the time-step resolution changes, 
+        the period should be adjusted
+        
+        this function uses the seasonal Mann Kendall test
+        developed by Hussain et al., (2019)
+        
+        """
+        
+        if met == "MK":
+    
+            trend, h, p, z, Tau, s, var_s, slope, intercept=mk.seasonal_test(series, alpha)
+ #           trend, h, p, z, Tau, s, var_s, slope, intercept=mk.original_test(series, alpha=0.05)
+            
+            return trend, p, s, slope, intercept
+            
+        else:
+            """Seasonal decompose by the additive method and linear regression of the seasonal
+             trend to check the general trend """
+            decomp=seasonal_decompose(series, model="additive", period=120)
+            dtrend=decomp.trend
+            dtrendc=dtrend.copy().dropna()
+            dtrendc.index= np.arange(len(dtrendc))
+            x =np.arange(len(dtrendc)-1, dtype=np.float64)
+            y = dtrendc.values[:-1].astype('float32')
+            slope, intercept, r_value, p, std_err = linregress(x, y)
+            if p > 0.05:
+                trend="False"
+            else:
+                trend="True"
+            
+            return  trend, p, r_value, slope, intercept
+    
     
     def readtimeseries(self):
         path=self.rpath+   \
@@ -173,7 +216,7 @@ class loadccvar:
             "/"+self.modelname+"_"+self.var+"_"+  \
             self.scenario.lower()+"/" 
         
-        vtm, vidcods, vslope, vintercept =[] , [] , [], []
+        vtm, vidcods, vslope, vintercept, vtrend, vpval =[] , [] , [], [], [], []
         c=0
         for mid in self.vcod: 
             tmc=pd.read_csv(path+ \
@@ -198,23 +241,21 @@ class loadccvar:
             else:
                 datamonth=dfdatacopy.resample("M").mean()
             
-            decomp=seasonal_decompose(datamonth, model="additive", period=120)
-            dtrend=decomp.trend
-            dtrendc=dtrend.copy().dropna()
-            dtrendc.index= np.arange(len(dtrendc))
-            x =np.arange(len(dtrendc)-1, dtype=np.float64)
-            y = dtrendc.values[:-1].astype('float32')
-            slope, intercept, r_value, p_value, std_err = linregress(x, y)
+
+            trend, p, s, slope, intercept= self.mktrend(datamonth, period=12)
             
-            
-            
-            vtm.append(dfdata)
+            vtm.append(datamonth)
             vidcods.append(self.idcods[c])
+            vtrend.append(trend)
+            vpval.append(p)
             vslope.append(slope)
             vintercept.append(intercept)
             c+=1
+            
+        dfcm= pd.DataFrame({"wellid":vidcods,"data":vtm, "trend":vtrend, 
+                            "pval":vpval,"slope":vslope, "intercept":vintercept})
         
-        return vtm , vidcods, vslope, vintercept
+        return dfcm
             
            
 
