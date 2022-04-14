@@ -21,6 +21,12 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from scipy.stats import linregress
 import pymannkendall as mk
 
+from matplotlib_scalebar.scalebar import ScaleBar
+import matplotlib.colors as colors
+import contextily as cx
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy import signal
+
 
 #Read groundwater time series (txt)
 def readGWdata(mestid, path):
@@ -181,7 +187,9 @@ class loadccvar:
         
         if met == "MK":
     
-            trend, h, p, z, Tau, s, var_s, slope, intercept=mk.seasonal_test(series, alpha)
+            trend, h, p, z, Tau, s, var_s, slope, intercept=mk.seasonal_test(series, 
+                                                                             period=period, 
+                                                                             alpha=alpha)
  #           trend, h, p, z, Tau, s, var_s, slope, intercept=mk.original_test(series, alpha=0.05)
             
             return trend, p, s, slope, intercept
@@ -189,7 +197,7 @@ class loadccvar:
         else:
             """Seasonal decompose by the additive method and linear regression of the seasonal
              trend to check the general trend """
-            decomp=seasonal_decompose(series, model="additive", period=120)
+            decomp=seasonal_decompose(series, model="additive", period=period)
             dtrend=decomp.trend
             dtrendc=dtrend.copy().dropna()
             dtrendc.index= np.arange(len(dtrendc))
@@ -227,7 +235,9 @@ class loadccvar:
         
             datasplit=tmc[tmc.columns[0]].str.split("    ", expand=True)
             splitdates=datasplit[0].str.split(expand=True)
-            dates=pd.to_datetime(splitdates[0].astype(str)+' '+splitdates[1].astype(str)+' '+splitdates[2].astype(str))
+            dates=pd.to_datetime(splitdates[0].astype(str)+' '
+                                 +splitdates[1].astype(str)+' '
+                                 +splitdates[2].astype(str))
             data=datasplit[1].copy()
             
 
@@ -242,7 +252,7 @@ class loadccvar:
                 datamonth=dfdatacopy.resample("M").mean()
             
 
-            trend, p, s, slope, intercept= self.mktrend(datamonth, period=12)
+            trend, p, s, slope, intercept= self.mktrend(series=datamonth, period=12)
             
             vtm.append(datamonth)
             vidcods.append(self.idcods[c])
@@ -285,7 +295,7 @@ class fillGWgaps:
         
     
     """
-    def __init__(self, gwdata, gws,maxd=2*10e3,th=98, maxn=8):
+    def __init__(self, gwdata, gws,maxd=20*10e3,th=98, maxn=8):
         self.gwdata=gwdata
         self.gws= gws
         self.maxd=maxd
@@ -329,6 +339,9 @@ class fillGWgaps:
         Returns
         -------
         dfwell : Dataframe  with the data of the target well
+                MEST_ID, DATUM, GW_NN (main columns)
+        lwells: list of the ids of closest wells near the target well
+        
         """
         iwell=self.gwdata.data[self.gwdata["wellid"]==twell].index[0]
         data_twell=self.gwdata.data[self.gwdata["wellid"]==twell]
@@ -340,6 +353,8 @@ class fillGWgaps:
         
         return dfwell, lwells
     
+
+    
     def builttwdf(self,twell):
         """
         Generates a Dataframe based on the dates of the target well and 
@@ -347,7 +362,18 @@ class fillGWgaps:
         -------
         input: twell --> code of the target well (the one to be gap-filled)
                 type: int
-
+                
+        Output: dftest--> dataframe of the target well and the nearest wells information
+                        the data is cliped to start and end in the first and last valid value 
+                        (no sequential NaN)
+                        Non-Nan values associated with the target well are removed
+                        
+                        
+                fillednan--> Dataframe of the target well and the nearest wells information
+                            is associated only with the NaN and NoNaN values of the target well
+                            
+                twdata--> Dataframe with the target well information, contains the Nan and No NaN 
+                        information associated with the target well. 
     
         """       
         dfwell=self.tw_data(twell)[0]
@@ -359,6 +385,7 @@ class fillGWgaps:
         lastnonan=dfwell.GW_NN.last_valid_index()
         
         filldf=pd.DataFrame({"DATUM":dfwell.DATUM.loc[fnonan:lastnonan]})
+        
         for w in lwells:
             series=self.gwdata.data[self.gwdata["wellid"]==w] 
             if not series.empty: # Remove wells with no information
@@ -372,8 +399,6 @@ class fillGWgaps:
                 
                 filldf=mergedf
         
-            else:
-                print("empty")
         
         if not filldf.empty:
             filldf["twell_"+str(twell)]=dfwell.GW_NN.loc[fnonan:lastnonan].values
@@ -392,22 +417,85 @@ class fillGWgaps:
         
         return dftest, fillednan
     
-    def MLRmodel(self, twell):
+    def euclidean_distance(self, s1,s2):
+        """"Compute the Euclidean distance between two time series - 
+        before estimation, the series are translated, scaled and detrend """
+        #Transform first
+        series1=signal.detrend((s1-s1.mean())/s1.std())
+        series2=signal.detrend((s2-s2.mean())/s2.std())    
+    
+        dist=np.sqrt(sum(pow(a-b,2) for a, b in zip(series1, series2)))
+        
+        return dist
+    
+    def datasetsel(self, twell, distthresh=60):
+        """"Check the similarity with the Euclidean distance and remove the times
+        series with distances above distthresh (int) """
+        
+        
+        vdist, vwell=[], []
+        dftest=self.builttwdf(twell)[0]
+        fillednan=self.builttwdf(twell)[1]
+        
+        
+        for c in dftest.columns[1:-1]:
+            s1=dftest[dftest.columns[-1]]
+            s2=dftest[c]
+        
+            dist=self.euclidean_distance(s1,s2)
+            vwell.append(c)
+            vdist.append(dist)
+           # distdf=pd.DataFrame({"idwells":vwell, "distance":vdist})
+            #sim=1/(1+dist)
+        norm = [float(i)*100/max(vdist) for i in vdist]
+        lim=np.percentile(np.array(norm),10) ## Take the distances bellow the 10th percentile
+        if lim >80: # If greater than 80 then use the distance set
+            lim=distthresh
+        ind=np.where(np.array(norm)<=lim) 
+        vwell=np.array(vwell)
+        vwell2=np.append(vwell[ind], ["DATUM", "twell_"+str(twell)])
+        dfstation=dftest[dftest.columns[dftest.columns.isin(vwell2)]]
+        fillnan=fillednan[fillednan.columns[fillednan.columns.isin(vwell2)]]
+
+        
+        return dfstation, fillnan
+        
+
+    def pchip(self, data):
+        """Piecewise Cubic Hermite Interpolating Polynomial (PCHIP) to fill the missing values 
+        that can not be filled by other methods-- this method should be only for small gaps"""
+        datai = data.interpolate(method="pchip", order=2)
+        
+        return datai
+        
+              
+
+    def MLRmodel(self, twell,threshscore=0.7):
         """ Multiple linear regression
         twell --> code of the target well (the one to be gap-filled)
                 type: int
                 
-        maxn:  maximum number of wells near the twell to consider 
-        for the MLR. Type:int
+        maxn (int):  maximum number of wells near the twell to consider 
+        for the MLR. 
         """
         
-        dftest=self.builttwdf(twell)[0]
-        fillednan=self.builttwdf(twell)[1]
+        dfstation=self.datasetsel(twell)[0]
+        fillednan=self.datasetsel(twell)[1]
+        
+        nanratio=(len(fillednan[fillednan["twell_"+str(twell)].isna()])/
+                  len(fillednan["twell_"+str(twell)]))*100
+        numnanr=len(fillednan[fillednan["twell_"+str(twell)].isna()])
+        
+        if len(fillednan[fillednan["twell_"+str(twell)].isna()])==0:
+            interp_type="complete"
+            return fillednan[["DATUM", "twell_"+str(twell)]] , interp_type, nanratio, numnanr
+        
+
         
         #Define dataset
-        auxdf=dftest[dftest.columns[:-1]] #Exclude twell column
-        X = auxdf[auxdf.columns[1:self.maxn+1]]
-        y = dftest[dftest.columns[-1]]
+        dfstationax=dfstation[dfstation.columns[1:-1]]
+        X = dfstationax[dfstationax.columns[-self.maxn:]]
+        y = dfstation[dfstation.columns[-1]]
         
         #TEST and TRAIN
         if not X.empty:
@@ -417,19 +505,99 @@ class fillGWgaps:
             model1 = LinearRegression().fit(X_train, y_train)
             score=model1.score(X_test, y_test)
             
-            predictdf=fillednan[fillednan["twell_"+str(twell)].isna()]
-            auxdf2=predictdf[predictdf.columns[:-1]] #Exclude twell column
-            X_predct=auxdf2[auxdf2.columns[1:self.maxn+1]]
-            predictions = model1.predict(X_predct)
-            predictdf["twell_"+str(twell)]=predictions
-            dftest2=dftest.combine_first(predictdf[["DATUM", "twell_"+str(twell)]])
+            if score>threshscore:    
+                predictdf=fillednan[fillednan["twell_"+str(twell)].isna()]
+                auxdf2=predictdf[predictdf.columns[1:-1]] #Exclude twell column
+                X_predct=auxdf2[auxdf2.columns[-self.maxn:]]
+                predictions = model1.predict(X_predct)
+                predictdf["twell_"+str(twell)]=predictions
+                dftest2=dfstation.combine_first(predictdf[["DATUM", "twell_"+str(twell)]])
+                interp_type="MLR"
+                
+                return dftest2, interp_type, nanratio, numnanr
             
-            return dftest2 , score 
+            else:
+                fillednan["Ftwell_"+str(twell)]=self.pchip(fillednan["twell_"+str(twell)])
+                twdata=fillednan[["DATUM", "Ftwell_"+str(twell)]]
+                interp_type="PCHIP"
+                return twdata, interp_type, nanratio, numnanr
+
         else:
-            print("No wells avaialble for model prediction")
+            fillednan["Ftwell_"+str(twell)]=self.pchip(fillednan["twell_"+str(twell)])
+            twdata=fillednan[["DATUM", "Ftwell_"+str(twell)]]
+            interp_type="PCHIP"
+            return twdata, interp_type, nanratio, numnanr
+        
+
             
     
     
+
+def mapplot(data, gwstat, countrybd, column, namevar, units, axis,cmap):
+    """This funtion is to create a map according to the input shapefiles
+    
+    data: geopandas dataframe (point shape) with the columns needed to classify
+    countrybd: national or regional administrative boundaries.
+    column: the name of the column to perform the classification
+    namevar (str): Name of the variable to display in next to the legend
+    units (str): units of the variable
+    axis: in which axis of the bigger figure should be the plot located
+    cmap (str) choose the colormap according to the variable, if plotting trends 
+        for precipitation is recommendable to use "seismic_r" while 0 correspond to the white color
+    """
+    
+    bound=countrybd.to_crs(data.crs.to_string()) 
+    
+    gw=gwstat.plot(ax=axis,
+               markersize=10, color="darkred",
+               marker="v", facecolor="None", alpha=0.2)
+    if ((data[column].min()<0) and (data[column].max()>0)):
+        cmap="seismic_r"
+           
+    dat=data.plot(ax=axis,column=column,scheme="headtailbreaks", categorical=False, cmap=cmap, markersize=10,
+               marker="v", facecolor="None")
+    bound.boundary.plot( ax=axis, alpha=0.5, edgecolor='k', linewidth=1)
+    
+    #Scalebar
+    fig=dat.get_figure()
+
+    if ((data[column].min()<0) and (data[column].max()>0)):
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=data[column].min(), 
+                                                                      vcenter=0,
+                                                                       vmax=data[column].max()))    
+    else:
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=data[column].min(), 
+                                                                       vmax=data[column].max()))
+    #Colorbar 
+    divider = make_axes_locatable(axis)
+    cax = divider.append_axes('bottom', size='5%', pad=0.5)
+    cbar = fig.colorbar(sm,orientation="horizontal",fraction=0.05,cax=cax)
+    cbar.ax.set_xlabel(namevar+" ("+units+")")
+#    cbar_step=np.abs(data[column].max()-data[column].min())/3 #Number of ticks to show in the colorbar
+    #cbar.ax.set_xticklabels(fontsize=8, weight='bold')
+    
+
+
+    #Scale 
+    scalebar = ScaleBar(0.5, "m", dimension="si-length", length_fraction=0.10, location="lower left")
+    gw.add_artist(scalebar)
+    gw.tick_params(axis='y', which='major', labelsize=8, rotation=90)
+    gw.tick_params(axis='x', which='major', labelsize=8, rotation=0)
+    startx, endx = gw.get_xlim()
+    starty, endy = gw.get_ylim()
+    #North arrow
+    arrx=endx- endx*0.002
+    arry=endy-endy*0.0040
+    gw.text(x=arrx-arrx*0.0001, y=arry, s='N', fontsize=16,alpha=0.8)
+    gw.arrow(arrx, arry-arry*0.002, 0, 10000, length_includes_head=True,
+              head_width=8000, head_length=20000, overhang=.2, ec="k",facecolor='k', alpha=0.4)
+    #cx.add_basemap(ax=NSmap, source=cx.providers.Stamen.TonerLabels)
+    cx.add_basemap(ax=gw,  crs=data.crs.to_string(), source=cx.providers.Esri.OceanBasemap, alpha=0.5,attribution=False)
+                                   
+    return axis
+
+
+
         
         
         
