@@ -530,7 +530,117 @@ class fillGWgaps:
         
 
             
+class setinputdataset:
+    """"This class is to set the input features per well according to the 
+    pre-processing outputs, which are saved into series of dataframes
     
+    inputs:
+        wellid (str): the id of the wanted well 
+        datagw : dataframe with the groundwater information after filtering and gap 
+        filling, the required columns are wellid and GW_NN (groundwater levels records)
+        This is the output of the pre-processing --Filling_gaps_GWL
+
+    """
+    def __init__(self,wellid, datagw):
+        self.wellid= wellid
+        self.datagw=datagw        
+
+    def setgwdata(self):
+        "Set a dataframe with the groundwater levels records of the wellid"
+        dfgwl=self.datagw.loc[self.datagw.wellid==int(self.wellid)]
+        indv=dfgwl.index.values[0]
+        datfill=dfgwl.GW_NN[indv]
+        dfwell=datfill[["DATUM","twell_"+str(self.wellid)]]
+        
+        return dfwell
+    
+    def selmetdata(self,datapr, datatm, datarh):
+        """Monthly resample of metereological data and extraction per wellid
+        
+        datapr, datatm, datarh: dataframe of information per well, contains the daily time series
+        of each metereological variable (precipitation, temperature, relative humidity), 
+        the required columns are "time" (time in the format of datetime),
+        "cdata"(climate time series) and "ID" (well ids). 
+        
+        This is the output of the pre-processing--extract_netCDF"""
+        
+        metdata=[datapr,datatm,datarh]
+        metnames=["pr","tm", "rh"]
+        
+        vmetdata=[]
+        for metdf, metname in zip(metdata, metnames):
+            df=metdf.loc[metdf.ID==int(self.wellid)]
+            indexm=df.index.values[0]
+            #set dates as a column
+            df_day=pd.DataFrame({"dates":pd.to_datetime(df.time[indexm]),
+                                       "cdata":df.cdata[indexm]} )
+            df_dayc=df_day.copy()
+            #resample to monthly resolution
+            if metname=="pr":
+                dfcdmonth=df_dayc.resample("M", on="dates").sum()
+            else:
+                dfcdmonth=df_dayc.resample("M", on="dates").mean()
+                
+            dfcdmonth['dates'] = dfcdmonth.index
+            vmetdata.append(dfcdmonth)
+            
+        return vmetdata
+    
+    def setinputdata(self,datapr, datatm, datarh):
+        """Set climate data into a dataframe containing the three 
+        metereological variables and the GWL
+        
+        output: dataframe with the monthly time series of the groundwater levels and
+        the metereological information associated to the well id"""
+        
+        #Check for the time range compatibility-- the time range is check against the precipitation time range, since
+        #the HYRAS dataset is available for the same time-range, this is also valid for temperature and relative humidity
+        dfwell=self.setgwdata()
+        metdfwell=self.selmetdata(datapr, datatm, datarh)
+        
+        dateini=dfwell.DATUM[0]  if  dfwell.DATUM[0]>metdfwell[0].index[0] else metdfwell[0].index[0]
+        datefin=metdfwell[0].index[-1] if dfwell.DATUM[len(dfwell)-1] > metdfwell[0].index[-1] else dfwell.DATUM[len(dfwell)-1]
+        dates= pd.date_range(dateini,datefin, freq='M')
+
+        #Make sure the data has the same time range 
+        dfwellsel=dfwell.loc[(dfwell.DATUM>=dateini) & (dfwell.DATUM<=datefin)]
+        
+        vmetdfwell=[]
+        for df in metdfwell:
+            vmetdfwell.append(df.loc[(df.dates>=dateini) & (df.dates<=datefin)])
+
+        #Save a dataframe with the information per well (historic data)
+        cdwell=pd.DataFrame({"dates":dates,"GWL": dfwellsel["twell_"+str(self.wellid)], "pr":vmetdfwell[0].cdata.values,
+                             "tm":vmetdfwell[1].cdata.values, "rh": vmetdfwell[2].cdata.values})
+        return cdwell
+    
+    
+    def setclimmodel(self,cmpr,cmtm,cmrh, modelname="MPI_WRF361H"):
+        
+       climmodels=[cmpr,cmtm,cmrh] 
+       #List of climate models available
+       lmodels=["MPI_WRF361H", "MPI_CCLM", "MIROC_CCLM", 
+                "HadGEM_WRF361H", "ECE_RACMO_r12", "ECE_RACMO_r1"]
+       lmodel=np.array(lmodels)
+       #locate the model to match with the name on the argumments
+       nd=np.where(lmodel==modelname)[0][0]
+       
+       vcmwell=[]
+       for mod in climmodels:
+           modeldat=cmpr.cmodel[nd]
+           cwmwells=modeldat.loc[modeldat.wellid==int(self.wellid)]
+           icmwells=cwmwells.index.values[0]
+           cmwell=cwmwells.data[icmwells]
+           vcmwell.append(cmwell)
+             
+       #Built the dataframe with the climate models
+       cmwelldf=pd.DataFrame({"date":vcmwell[0].index,
+                             "pr":vcmwell[0].data.values,
+                             "tm":vcmwell[1].data.values,
+                             "rh":vcmwell[2].data.values}) 
+       return cmwelldf 
+        
+   
     
 
 def mapplot(data, gwstat, countrybd, column, namevar, units, axis,cmap):
