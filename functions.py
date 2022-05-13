@@ -601,9 +601,11 @@ class setinputdataset:
         dateini=dfwell.DATUM[0]  if  dfwell.DATUM[0]>metdfwell[0].index[0] else metdfwell[0].index[0]
         datefin=metdfwell[0].index[-1] if dfwell.DATUM[len(dfwell)-1] > metdfwell[0].index[-1] else dfwell.DATUM[len(dfwell)-1]
         dates= pd.date_range(dateini,datefin, freq='M')
+        
+        dfwell["DATUM"]= [dfwell.DATUM[n].strftime("%Y-%m") for n in range(len(dfwell))]
 
         #Make sure the data has the same time range 
-        dfwellsel=dfwell.loc[(dfwell.DATUM>=dateini) & (dfwell.DATUM<=datefin)]
+        dfwellsel=dfwell.loc[(dfwell.DATUM>=dateini.strftime("%Y-%m")) & (dfwell.DATUM<=datefin.strftime("%Y-%m"))]
         
         vmetdfwell=[]
         for df in metdfwell:
@@ -647,6 +649,7 @@ def mapplot(data, gwstat, countrybd, column, namevar, units, axis,cmap):
     """This funtion is to create a map according to the input shapefiles
     
     data: geopandas dataframe (point shape) with the columns needed to classify
+    gwstat: shapefile with the well locations
     countrybd: national or regional administrative boundaries.
     column: the name of the column to perform the classification
     namevar (str): Name of the variable to display in next to the legend
