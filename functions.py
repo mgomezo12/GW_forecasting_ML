@@ -550,8 +550,11 @@ class setinputdataset:
         dfgwl=self.datagw.loc[self.datagw.wellid==int(self.wellid)]
         indv=dfgwl.index.values[0]
         datfill=dfgwl.GW_NN[indv]
-        dfwell=datfill[["DATUM","twell_"+str(self.wellid)]]
-        
+        try:
+            dfwell=datfill[["DATUM","twell_"+str(self.wellid)]]
+        except:
+            dfwell=datfill[["DATUM","Ftwell_"+str(self.wellid)]]
+            
         return dfwell
     
     def selmetdata(self,datapr, datatm, datarh):
@@ -612,35 +615,67 @@ class setinputdataset:
             vmetdfwell.append(df.loc[(df.dates>=dateini) & (df.dates<=datefin)])
 
         #Save a dataframe with the information per well (historic data)
-        cdwell=pd.DataFrame({"dates":dates,"GWL": dfwellsel["twell_"+str(self.wellid)], "pr":vmetdfwell[0].cdata.values,
-                             "tm":vmetdfwell[1].cdata.values, "rh": vmetdfwell[2].cdata.values})
+        try:
+            cdwell=pd.DataFrame({"dates":dates,"GWL": dfwellsel["twell_"+str(self.wellid)], "pr":vmetdfwell[0].cdata.values,
+                                 "tm":vmetdfwell[1].cdata.values, "rh": vmetdfwell[2].cdata.values})
+        except:
+            cdwell=pd.DataFrame({"dates":dates,"GWL": dfwellsel["Ftwell_"+str(self.wellid)], "pr":vmetdfwell[0].cdata.values,
+                                 "tm":vmetdfwell[1].cdata.values, "rh": vmetdfwell[2].cdata.values})
+            
         return cdwell
     
     
     def setclimmodel(self,cmpr,cmtm,cmrh, modelname="MPI_WRF361H"):
         
-       climmodels=[cmpr,cmtm,cmrh] 
-       #List of climate models available
-       lmodels=["MPI_WRF361H", "MPI_CCLM", "MIROC_CCLM", 
-                "HadGEM_WRF361H", "ECE_RACMO_r12", "ECE_RACMO_r1"]
-       lmodel=np.array(lmodels)
-       #locate the model to match with the name on the argumments
-       nd=np.where(lmodel==modelname)[0][0]
+        climmodels=[cmpr,cmtm,cmrh] 
+        dfwell=self.setgwdata()
        
-       vcmwell=[]
-       for mod in climmodels:
-           modeldat=cmpr.cmodel[nd]
-           cwmwells=modeldat.loc[modeldat.wellid==int(self.wellid)]
-           icmwells=cwmwells.index.values[0]
-           cmwell=cwmwells.data[icmwells]
-           vcmwell.append(cmwell)
-             
-       #Built the dataframe with the climate models
-       cmwelldf=pd.DataFrame({"date":vcmwell[0].index,
-                             "pr":vcmwell[0].data.values,
-                             "tm":vcmwell[1].data.values,
-                             "rh":vcmwell[2].data.values}) 
-       return cmwelldf 
+        
+         #List of climate models available
+        lmodels=["MPI_WRF361H", "MPI_CCLM", "MIROC_CCLM", 
+                 "HadGEM_WRF361H", "ECE_RACMO_r12", "ECE_RACMO_r1"]
+        lmodel=np.array(lmodels)
+        #locate the model to match with the name on the argumments
+        nd=np.where(lmodel==modelname)[0][0]
+        
+        vcmwell=[]
+        for mod in climmodels:
+            modeldat=mod.cmodel[nd]
+            cwmwells=modeldat.loc[modeldat.wellid==int(self.wellid)]
+            icmwells=cwmwells.index.values[0]
+            cmwell=cwmwells.data[icmwells]
+            vcmwell.append(cmwell)
+           
+            
+        dateini=dfwell.DATUM[0]  if  dfwell.DATUM[0]>vcmwell[0].index[0] else vcmwell[0].index[0]
+        datefin=vcmwell[0].index[-1] if dfwell.DATUM[len(dfwell)-1] > vcmwell[0].index[-1] else dfwell.DATUM[len(dfwell)-1]
+        dates= pd.date_range(dateini,datefin, freq='M')
+        
+        dfwell["DATUM"]= [dfwell.DATUM[n].strftime("%Y-%m") for n in range(len(dfwell))]
+        
+         #Make sure the data has the same time range 
+        dfwellsel=dfwell.loc[(dfwell.DATUM>=dateini.strftime("%Y-%m")) & (dfwell.DATUM<=datefin.strftime("%Y-%m"))]
+        
+        vcmwellclim=[]
+        for df in vcmwell:
+            vcmwellclim.append(df.loc[(df.index.strftime("%Y-%m")>=dateini.strftime("%Y-%m")) & (df.index.strftime("%Y-%m")<=datefin.strftime("%Y-%m"))])
+            
+
+        
+        #Save a dataframe with the information per well and the climate models
+        try:
+            cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
+                                 "GWL": dfwellsel["twell_"+str(self.wellid)], 
+                                 "pr":vcmwellclim[0].data.values,
+                                 "tm":vcmwellclim[1].data.values, 
+                                 "rh":vcmwellclim[2].data.values})
+        except:
+            cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
+                                 "GWL": dfwellsel["Ftwell_"+str(self.wellid)], 
+                                 "pr":vcmwellclim[0].data.values,
+                                 "tm":vcmwellclim[1].data.values, 
+                                 "rh":vcmwellclim[2].data.values})
+        return cmwelldf 
         
    
     
