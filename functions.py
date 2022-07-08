@@ -625,7 +625,7 @@ class setinputdataset:
         return cdwell
     
     
-    def setclimmodel(self,cmpr,cmtm,cmrh, modelname="MPI_WRF361H"):
+    def setclimmodel(self,cmpr,cmtm,cmrh, modelname="MPI_WRF361H", allcm=True):
         
         climmodels=[cmpr,cmtm,cmrh] 
         dfwell=self.setgwdata()
@@ -656,25 +656,41 @@ class setinputdataset:
          #Make sure the data has the same time range 
         dfwellsel=dfwell.loc[(dfwell.DATUM>=dateini.strftime("%Y-%m")) & (dfwell.DATUM<=datefin.strftime("%Y-%m"))]
         
+        #This sections is run if the projected data is desired to finish at the same period as the GWL records
+
         vcmwellclim=[]
         for df in vcmwell:
-            vcmwellclim.append(df.loc[(df.index.strftime("%Y-%m")>=dateini.strftime("%Y-%m")) & (df.index.strftime("%Y-%m")<=datefin.strftime("%Y-%m"))])
+            if allcm==True: #allcm means to retrieve the entire climate projections but without the GWL
+                vcmwellclim.append(df)
+            else:
+                vcmwellclim.append(df.loc[(df.index.strftime("%Y-%m")>=dateini.strftime("%Y-%m")) & (df.index.strftime("%Y-%m")<=datefin.strftime("%Y-%m"))])       
+                
+        if allcm == False:         
+            #Save a dataframe with the information per well and the climate models
+            try:
+                cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
+                                     "GWL": dfwellsel["twell_"+str(self.wellid)], 
+                                     "pr":vcmwellclim[0].data.values,
+                                     "tm":vcmwellclim[1].data.values, 
+                                     "rh":vcmwellclim[2].data.values})
+            except:
+                cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
+                                     "GWL": dfwellsel["Ftwell_"+str(self.wellid)], 
+                                     "pr":vcmwellclim[0].data.values,
+                                     "tm":vcmwellclim[1].data.values, 
+                                     "rh":vcmwellclim[2].data.values})
+        else: 
+            try:
+                cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index, 
+                                     "pr":vcmwellclim[0].data.values,
+                                     "tm":vcmwellclim[1].data.values, 
+                                     "rh":vcmwellclim[2].data.values})
+            except:
+                cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index, 
+                                     "pr":vcmwellclim[0].data.values,
+                                     "tm":vcmwellclim[1].data.values, 
+                                     "rh":vcmwellclim[2].data.values})
             
-
-        
-        #Save a dataframe with the information per well and the climate models
-        try:
-            cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
-                                 "GWL": dfwellsel["twell_"+str(self.wellid)], 
-                                 "pr":vcmwellclim[0].data.values,
-                                 "tm":vcmwellclim[1].data.values, 
-                                 "rh":vcmwellclim[2].data.values})
-        except:
-            cmwelldf=pd.DataFrame({"dates":vcmwellclim[0].index,
-                                 "GWL": dfwellsel["Ftwell_"+str(self.wellid)], 
-                                 "pr":vcmwellclim[0].data.values,
-                                 "tm":vcmwellclim[1].data.values, 
-                                 "rh":vcmwellclim[2].data.values})
         return cmwelldf 
         
    
@@ -745,9 +761,199 @@ def mapplot(data, gwstat, countrybd, column, namevar, units, axis,cmap):
     return axis
 
 
+def mapplots(column,cmap,bound,axs,gw_s, waterbodies,waterways,ND, marker='v', normalize=True):
+    gw=gw_s.plot(ax=axs,figsize=(10, 10),column=column, markersize=10,
+               marker=marker, facecolor="None",cmap=cmap, zorder=3)
+    waterbodies.plot( ax=axs, alpha=0.5, color='b', linewidth=0.8, zorder=1)
+    waterways.plot( ax=axs, alpha=0.3, color='b', linewidth=.5,zorder=2)
+    NS=ND.boundary.plot( ax=axs, alpha=0.3, edgecolor='k', linewidth=1, zorder=1)
 
+    #Colorbar 
+    #sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=0, vcenter=0.6, vmax=1))
+    if normalize: 
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=gw_s[column].min(), vmax=gw_s[column].max()))
+    else:
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=gw_s[column].min(), vcenter=0,  vmax=gw_s[column].max()))
+
+    fig=gw.get_figure()
+    divider = make_axes_locatable(axs)
+    cax = divider.append_axes('bottom', size='4%', pad=0.5)
+    cbar = fig.colorbar(sm,orientation="horizontal",fraction=0.001,cax=cax)
+    if column =='r2' or column == 'r2_2':
+        cbar.ax.set_xlabel('r$^2$')
+    elif column == 'NSE_2':
+        cbar.ax.set_xlabel('NSE')
+    elif column == 'diffr2':
+        cbar.ax.set_xlabel('$\Delta$r$^2$')
+    elif column == 'diffNSE':
+        cbar.ax.set_xlabel('$\Delta$NSE'    )
+    else:
+        cbar.ax.set_xlabel(column)
+
+
+    #for x, y, label in zip(gw_sel.geometry.x[:len(df)], gw_sel.geometry.y[:len(df)], gw_sel.MEST_ID[:len(df)]):
+    #    gw.annotate(label, xy=(x, y), xytext=(3, 3), textcoords="offset points", fontsize=5)
+
+
+
+    #scalebar
+    scalebar = ScaleBar(0.5, "m", dimension="si-length", length_fraction=0.10, location="lower left")
+    gw.add_artist(scalebar)
+    gw.tick_params(axis='y', which='major', labelsize=8, rotation=90)
+    gw.tick_params(axis='x', which='major', labelsize=8, rotation=0)
+    startx, endx = gw.get_xlim()
+    starty, endy = gw.get_ylim()
+
+    #North arrow
+    arrx=endx- endx*0.002
+    arry=endy-endy*0.0040
+    gw.text(x=arrx-arrx*0.0001, y=arry, s='N', fontsize=16,alpha=0.8)
+    gw.arrow(arrx, arry-arry*0.002, 0, 10000, length_includes_head=True,
+              head_width=8000, head_length=20000, overhang=.2, ec="k",facecolor='k', alpha=0.4)
+
+    #Basemap
+    #cx.providers.OpenStreetMap.Mapnik
+    cx.add_basemap(ax=NS,  crs=ND.crs.to_string(), source=cx.providers.OpenStreetMap.Mapnik,
+                   alpha=0.3,zoom=10,attribution=False,zorder=0)
+
+    return axs
+
+def mapplotsmod(column,bound,axs,gw_s, waterbodies=None,waterways=None,ND=None, 
+                color=None,cmap=None,marker='v', normalize=True,scheme=None, 
+                colorbar=None, markersize=10,
+               classification_kwds=None,zorder=3, legend_title=None, legend_kwds=None, label=None):
+    gw=gw_s.plot(ax=axs,figsize=(10, 10),column=column, markersize=markersize,scheme=scheme,
+               marker=marker, facecolor=None,facecolors='none',
+                 cmap=cmap, color=color,zorder=zorder,
+                 classification_kwds=classification_kwds,
+                 legend=True, legend_kwds=legend_kwds, label=label)
+    
+    if legend_title:
+        leg = gw.get_legend()
+        leg.set_title(legend_title)   
         
+    
+    if isinstance(waterbodies,gpd.geodataframe.GeoDataFrame):
+        waterbodies.plot( ax=axs, alpha=0.2, color='b', linewidth=0.8, zorder=1)
+    if isinstance(waterways,gpd.geodataframe.GeoDataFrame):
+        waterways.plot( ax=axs, alpha=0.2, color='b', linewidth=.5,zorder=2)
+    
+    if isinstance(ND,gpd.geodataframe.GeoDataFrame):
+        NS=ND.boundary.plot( ax=axs, alpha=0.15, edgecolor='k', linewidth=1, zorder=1)
+
+    #Colorbar 
+    #sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=0, vcenter=0.6, vmax=1))
+    if colorbar:
+        if normalize: 
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=gw_s[column].min(), vmax=gw_s[column].max()))
+        else:
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=gw_s[column].min(), vcenter=0,  vmax=gw_s[column].max()))
+        #sm = plt.cm.ScalarMappable(cmap=cmap, norm=colors.TwoSlopeNorm(vmin=gw_s[column].min(), vcenter=0,  vmax=gw_s[column].max()))
+        fig=gw.get_figure()
+        divider = make_axes_locatable(axs)
+        cax = divider.append_axes('bottom', size='4%', pad=0.5)
+        cbar = fig.colorbar(sm,orientation="horizontal",fraction=0.001,cax=cax)
+        if column =='r2' or column == 'r2_2':
+            cbar.ax.set_xlabel('r$^2$')
+        elif column == 'NSE_2':
+            cbar.ax.set_xlabel('NSE')
+        elif column == 'diffr2':
+            cbar.ax.set_xlabel('$\Delta$r$^2$')
+        elif column == 'diffNSE':
+            cbar.ax.set_xlabel('$\Delta$NSE')
+        else:
+            cbar.ax.set_xlabel(column)
+
+
+    #for x, y, label in zip(gw_sel.geometry.x[:len(df)], gw_sel.geometry.y[:len(df)], gw_sel.MEST_ID[:len(df)]):
+    #    gw.annotate(label, xy=(x, y), xytext=(3, 3), textcoords="offset points", fontsize=5)
+
+
+    #scalebar
+    scalebar = ScaleBar(0.5, "m", dimension="si-length", length_fraction=0.10, location="lower right")
+    gw.add_artist(scalebar)
+    gw.tick_params(axis='y', which='major', labelsize=8, rotation=90)
+    gw.tick_params(axis='x', which='major', labelsize=8, rotation=0)
+    startx, endx = gw.get_xlim()
+    starty, endy = gw.get_ylim()
+
+    #North arrow
+    arrx=endx- endx*0.002
+    arry=endy-endy*0.0040
+    gw.text(x=arrx-arrx*0.0001, y=arry, s='N', fontsize=16,alpha=0.8)
+    gw.arrow(arrx, arry-arry*0.002, 0, 10000, length_includes_head=True,
+              head_width=8000, head_length=20000, overhang=.2, ec="k",facecolor='k', alpha=0.4)
+
+    #Background map
+    #cx.providers.OpenStreetMap.Mapnik
+    if isinstance(ND,gpd.geodataframe.GeoDataFrame):
+        cx.add_basemap(ax=NS,  crs=ND.crs.to_string(), source=cx.providers.OpenStreetMap.Mapnik,
+                       alpha=0.4,zoom=10,attribution=False,zorder=0)
+
+    return axs
+
+# =============================================================================
+# Backup maps
+# =============================================================================
         
+# sns.set_theme(style="ticks")
+# column='diffr2'
+# bound=germany_states.to_crs(gw_sel.crs.to_string()) 
+# #cmap="coolwarm_r"
+# cmap='plasma'
+
+# #fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(20, 12))
+# gw=gw_sel.plot(figsize=(10, 10),column=column, markersize=35,
+#                marker="v", facecolor="None",cmap=cmap,edgecolor="grey",linewidth=0.01, zorder=3)
+# wb=waterbodies.plot( ax=gw, alpha=0.5, color='b', linewidth=0.8, zorder=1)
+# ww=waterways.plot( ax=gw, alpha=0.3, color='b', linewidth=.5,zorder=2)
+# #gdff=gdf.plot( ax=gw, alpha=0.5, color='r',markersize=12,zorder=2)
+# #cit=cities.plot( ax=gw, alpha=0.5, color='r',markersize=40,zorder=2)
+# NS=ND.boundary.plot( ax=gw, alpha=0.3, edgecolor='k', linewidth=1, zorder=1)
+
+# #Colorbar 
+# sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=gw_sel[column].min(), 
+#                                                                       vmax=gw_sel['diffNSE'].describe()[5]))
+# #sm = plt.cm.ScalarMappable(cmap="coolwarm_r", norm=colors.TwoSlopeNorm(vmin=0, vcenter=0.6, vmax=1))
+# #sm = plt.cm.ScalarMappable(cmap="coolwarm_r", norm=plt.Normalize(vmin=gw_sel[column].min(), 
+# #                                                                       vmax=gw_sel[column].max()))
+
+# fig=gw.get_figure()
+# divider = make_axes_locatable(gw)
+# cax = divider.append_axes('bottom', size='5%', pad=0.5)
+# cbar = fig.colorbar(sm,orientation="horizontal",fraction=0.05,cax=cax)
+# if column =='r2':
+#     cbar.ax.set_xlabel('r$^2$')
+# elif column == 'diffr2':
+#     cbar.ax.set_xlabel('$\Delta$r$^2$')
+# else:
+#     cbar.ax.set_xlabel(column)
+
+
+# #for x, y, label in zip(gw_sel.geometry.x[:len(df)], gw_sel.geometry.y[:len(df)], gw_sel.MEST_ID[:len(df)]):
+# #    gw.annotate(label, xy=(x, y), xytext=(3, 3), textcoords="offset points", fontsize=5)
+
+
+
+# #scalebar
+# scalebar = ScaleBar(0.5, "m", dimension="si-length", length_fraction=0.10, location="lower left")
+# gw.add_artist(scalebar)
+# gw.tick_params(axis='y', which='major', labelsize=8, rotation=90)
+# gw.tick_params(axis='x', which='major', labelsize=8, rotation=0)
+# startx, endx = gw.get_xlim()
+# starty, endy = gw.get_ylim()
+
+# #North arrow
+# arrx=endx- endx*0.002
+# arry=endy-endy*0.0040
+# gw.text(x=arrx-arrx*0.0001, y=arry, s='N', fontsize=16,alpha=0.8)
+# gw.arrow(arrx, arry-arry*0.002, 0, 10000, length_includes_head=True,
+#           head_width=8000, head_length=20000, overhang=.2, ec="k",facecolor='k', alpha=0.4)
+
+# #Basemap
+# #cx.providers.OpenStreetMap.Mapnik
+# cx.add_basemap(ax=NS,  crs=ND.crs.to_string(), source=cx.providers.OpenStreetMap.Mapnik,alpha=0.3,zoom=10,attribution=False,zorder=0)
+# plt.tight_layout()              
         
         
     

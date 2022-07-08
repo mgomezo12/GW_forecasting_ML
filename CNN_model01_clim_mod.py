@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Modified by Mariana Gomez after Andreas Wunsch 
+Adjusted by Mariana Gomez
 
+Original credits: 
 Created on Sun Nov 15 10:59:14 2020
 @author: Andreas Wunsch
 """
@@ -37,18 +38,18 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 def load_GW_and_HYRAS_Data(i):
     #define where to find the data
     path="D:/Data/students/mariana/data/"
-    datagw=pd.read_pickle(path+"/Pickle/GWfilldatamod2.pkl")
+    datagw=pd.read_pickle(path+"/Pickle/GWfilldatamod.pkl")
 
-    datapr=pd.read_pickle(path+"/Pickle/dataprt.pkl")
-    datatm=pd.read_pickle(path+"/Pickle/datatmt.pkl")
-    datarh=pd.read_pickle(path+"/Pickle/datarht.pkl")
+    cmpr=pd.read_pickle(path+"/Pickle/cmprdf.pkl")
+    cmtm=pd.read_pickle(path+"/Pickle/cmtmdf.pkl")
+    cmrh=pd.read_pickle(path+"/Pickle/cmrhdf.pkl")
     
     Well_ID=str(datagw.wellid[i])
     data=setinputdataset(Well_ID,datagw)
-    dfwell=data.setinputdata(datapr, datatm, datarh)
+    dfwell=data.setclimmodel(cmpr, cmtm, cmrh, modelname="MPI_WRF361H")
     dfw=dfwell.set_index("dates")
     
-    return  dfw, Well_ID
+    return  dfw[dfw.columns[:-1]], Well_ID
 
 def split_data(data, GLOBAL_SETTINGS):
     #split the test data from the rest
@@ -350,10 +351,7 @@ with tf.device("/gpu:0"):
     basedir = './' #define working directory
     os.chdir(basedir)
     
-    #for pp in range(367,500): 
-    for pp in [2,  17,  74,  81,  91, 148, 160, 164, 167, 169, 170, 172, 185,
-            203, 204, 208, 229, 241, 243, 278, 290, 295, 299, 300, 319, 322,
-            340, 347]:
+    for pp in range(505):
         time_single = datetime.datetime.now()
         seed(1)
         tf.random.set_seed(1)

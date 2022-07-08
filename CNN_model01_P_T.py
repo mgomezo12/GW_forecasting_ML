@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Modified by Mariana Gomez after Andreas Wunsch 
+Adjusted by Mariana Gomez
 
+Original credits: 
 Created on Sun Nov 15 10:59:14 2020
 @author: Andreas Wunsch
 """
@@ -48,7 +49,7 @@ def load_GW_and_HYRAS_Data(i):
     dfwell=data.setinputdata(datapr, datatm, datarh)
     dfw=dfwell.set_index("dates")
     
-    return  dfw, Well_ID
+    return  dfw[dfw.columns[:-1]], Well_ID #remove relative humidity 
 
 def split_data(data, GLOBAL_SETTINGS):
     #split the test data from the rest
@@ -344,14 +345,14 @@ class newJSONLogger(JSONLogger) :
 #### start 
 # =============================================================================
 
-with tf.device("/gpu:0"):
+with tf.device("/gpu:1"):
 
     time1 = datetime.datetime.now()
     basedir = './' #define working directory
     os.chdir(basedir)
     
-    #for pp in range(367,500): 
-    for pp in [2,  17,  74,  81,  91, 148, 160, 164, 167, 169, 170, 172, 185,
+    #for pp in range(505) :
+    for pp in [  2,  17,  74,  81,  91, 148, 160, 164, 167, 169, 170, 172, 185,
             203, 204, 208, 229, 241, 243, 278, 290, 295, 299, 300, 319, 322,
             340, 347]:
         time_single = datetime.datetime.now()
